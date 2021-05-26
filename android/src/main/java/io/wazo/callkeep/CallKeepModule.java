@@ -20,6 +20,10 @@ package io.wazo.callkeep;
 import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -27,7 +31,10 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.graphics.drawable.Icon;
+import android.media.AudioAttributes;
+import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
@@ -43,6 +50,8 @@ import android.view.WindowManager;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
+import androidx.core.app.NotificationCompat;
+import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 import androidx.localbroadcastmanager.content.LocalBroadcastManager;
 
@@ -95,6 +104,9 @@ public class CallKeepModule {
 
     public void setActivity(Activity activity) {
         this._currentActivity = activity;
+        if (activity != null) {
+            NotificationManagerCompat.from(getAppContext()).cancel(WAKE_UP_NOTIFICATION_ID);
+        }
     }
 
     public void dispose(){
@@ -553,6 +565,9 @@ public class CallKeepModule {
             focusIntent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
             activity.startActivity(focusIntent);
         } else {
+            if (Build.VERSION.SDK_INT >= 29) {
+                showCallNotification();
+            }
             focusIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK +
                     WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED +
                     WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD +
@@ -564,6 +579,73 @@ public class CallKeepModule {
             }
         }
         result.success(isOpened);
+    }
+
+    static String WAKE_UP_NOTIFICATION_CHAN = "videollamada_docdoc";
+    static int WAKE_UP_NOTIFICATION_ID = 837298;
+
+    private void showCallNotification() {
+        Context context = getAppContext();
+        String packageName = context.getPackageName();
+        Intent notify = context.getPackageManager().getLaunchIntentForPackage(packageName)
+                .cloneFilter()
+                .putExtra("from_video_call", true)
+                .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+
+        int icon = context.getResources().getIdentifier("ic_notification", "drawable", packageName);
+
+        Log.d(TAG, String.format("allowOnLockScreen icon ?%d %s", icon, packageName));
+
+        final long[] _vibrationPattern = new long[]{0, 250, 250, 250};
+        Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+
+        final NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            manager.getNotificationChannel(WAKE_UP_NOTIFICATION_CHAN) == null) {
+            // Create a notification channel on first use.
+            NotificationChannel chan = new NotificationChannel(
+                WAKE_UP_NOTIFICATION_CHAN,
+                    WAKE_UP_NOTIFICATION_CHAN,
+                NotificationManager.IMPORTANCE_HIGH);
+            chan.setSound(ringtoneUri, new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ALARM)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build());
+            chan.setVibrationPattern(_vibrationPattern);
+            chan.setLockscreenVisibility(Notification.VISIBILITY_PUBLIC);
+            chan.enableVibration(true);
+            manager.createNotificationChannel(chan);
+        }
+        PendingIntent pendingIntent = PendingIntent.getActivity(context, 0, notify, PendingIntent.FLAG_UPDATE_CURRENT);
+        final Notification notification =
+            (new NotificationCompat.Builder(context, WAKE_UP_NOTIFICATION_CHAN))
+                .setContentTitle("Llamada entrante doc-doc")
+                .setContentText("Entra a doc-doc para continuar a la llamada")
+                .setSmallIcon(icon)
+                // NOTE: This takes the place of the window attribute
+                // FLAG_SHOW_WHEN_LOCKED in the activity itself for newer APIs.
+                    .setContentIntent(pendingIntent)
+                    .setFullScreenIntent(pendingIntent, true)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setVibrate(_vibrationPattern)
+                .setSound(ringtoneUri)
+                .setOngoing(true)
+                .setAutoCancel(true)
+                .setTimeoutAfter(15000)
+                .setLights(Color.WHITE, 1000, 1000)
+                .build();
+        notification.flags |= Notification.FLAG_INSISTENT;  // Loop sound/vib/blink
+        notification.flags |= Notification.FLAG_AUTO_CANCEL;
+        notification.flags |= Notification.FLAG_ONGOING_EVENT;
+//      service.startForeground(WAKE_UP_NOTIFICATION_ID, notification);
+
+        NotificationManagerCompat.from(context).notify(WAKE_UP_NOTIFICATION_ID, notification);
+        // NOTE: As of API 29, this only works when the app is in the foreground.
+        // https://developer.android.com/guide/components/activities/background-starts
+        // The setFullScreenIntent option above handles the lock screen case.
+        context.startActivity(notify);
     }
 
     private void initializeTelecomManager() {
