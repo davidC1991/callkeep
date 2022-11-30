@@ -6,7 +6,7 @@ import 'package:flutter/material.dart'
         showDialog,
         AlertDialog,
         BuildContext,
-        FlatButton,
+        MaterialButton,
         Navigator,
         Text,
         Widget;
@@ -328,12 +328,12 @@ class FlutterCallkeep extends EventManager {
         content: Text(alertDescription ??
             'This application needs to access your phone accounts'),
         actions: <Widget>[
-          FlatButton(
+          MaterialButton(
             child: Text(cancelButton ?? 'Cancel'),
             onPressed: () =>
                 Navigator.of(context, rootNavigator: true).pop(false),
           ),
-          FlatButton(
+          MaterialButton(
             child: Text(okButton ?? 'ok'),
             onPressed: () =>
                 Navigator.of(context, rootNavigator: true).pop(true),
